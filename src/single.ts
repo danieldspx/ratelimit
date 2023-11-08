@@ -1,13 +1,11 @@
 import type { Duration } from "./duration";
 import { ms } from "./duration";
-import type { Algorithm, RegionContext } from "./types";
-import type { Redis } from "./types";
+import type { Algorithm, AlgorithmOptions, Redis, RegionContext } from "./types";
 
 import { Ratelimit } from "./ratelimit";
 export type RegionRatelimitConfig = {
   /**
-   * Instance of `@upstash/redis`
-   * @see https://github.com/upstash/upstash-redis#quick-start
+   * Instance of Redis
    */
   redis: Redis;
   /**
@@ -116,7 +114,7 @@ export class RegionRatelimit extends Ratelimit<RegionContext> {
     /**
      * How many requests are allowed per window.
      */
-    tokens: number,
+    defaultTokens: number,
     /**
      * The duration in which `tokens` requests are allowed.
      */
@@ -138,9 +136,11 @@ export class RegionRatelimit extends Ratelimit<RegionContext> {
     return r
     `;
 
-    return async function (ctx: RegionContext, identifier: string) {
+    return async function (ctx: RegionContext, identifier: string, opts?: AlgorithmOptions) {
       const bucket = Math.floor(Date.now() / windowDuration);
       const key = [identifier, bucket].join(":");
+
+      const tokens = opts?.dynamicLimit || defaultTokens;
 
       if (ctx.cache) {
         const { blocked, reset } = ctx.cache.isBlocked(identifier);
@@ -156,8 +156,8 @@ export class RegionRatelimit extends Ratelimit<RegionContext> {
       }
       const usedTokensAfterUpdate = (await ctx.redis.eval(
         script,
-        [key],
-        [windowDuration],
+        1,
+        ...[key, windowDuration],
       )) as number;
 
       const success = usedTokensAfterUpdate <= tokens;
@@ -196,7 +196,7 @@ export class RegionRatelimit extends Ratelimit<RegionContext> {
     /**
      * How many requests are allowed per window.
      */
-    tokens: number,
+    defaultTokens: number,
     /**
      * The duration in which `tokens` requests are allowed.
      */
@@ -234,8 +234,10 @@ export class RegionRatelimit extends Ratelimit<RegionContext> {
       return tokens - ( newValue + requestsInPreviousWindow )
       `;
     const windowSize = ms(window);
-    return async function (ctx: RegionContext, identifier: string) {
+    return async function (ctx: RegionContext, identifier: string, opts?: AlgorithmOptions) {
       const now = Date.now();
+
+      const tokens = opts?.dynamicLimit || defaultTokens;
 
       const currentWindow = Math.floor(now / windowSize);
       const currentKey = [identifier, currentWindow].join(":");
@@ -257,8 +259,8 @@ export class RegionRatelimit extends Ratelimit<RegionContext> {
 
       const remaining = (await ctx.redis.eval(
         script,
-        [currentKey, previousKey],
-        [tokens, now, windowSize],
+        2,
+        ...[currentKey, previousKey, tokens, now, windowSize],
       )) as number;
 
       const success = remaining >= 0;
@@ -370,8 +372,8 @@ export class RegionRatelimit extends Ratelimit<RegionContext> {
 
       const [remaining, reset] = (await ctx.redis.eval(
         script,
-        [key],
-        [maxTokens, intervalDuration, refillRate, now],
+        1,
+        ...[key, maxTokens, intervalDuration, refillRate, now],
       )) as [number, number];
 
       const success = remaining > 0;
@@ -453,7 +455,7 @@ export class RegionRatelimit extends Ratelimit<RegionContext> {
         const success = cachedTokensAfterUpdate < tokens;
 
         const pending = success
-          ? ctx.redis.eval(script, [key], [windowDuration]).then((t) => {
+          ? ctx.redis.eval(script, 1, ...[key, windowDuration]).then((t) => {
               ctx.cache!.set(key, t as number);
             })
           : Promise.resolve();
@@ -469,8 +471,8 @@ export class RegionRatelimit extends Ratelimit<RegionContext> {
 
       const usedTokensAfterUpdate = (await ctx.redis.eval(
         script,
-        [key],
-        [windowDuration],
+        1,
+        ...[key, windowDuration],
       )) as number;
       ctx.cache.set(key, usedTokensAfterUpdate);
       const remaining = tokens - usedTokensAfterUpdate;

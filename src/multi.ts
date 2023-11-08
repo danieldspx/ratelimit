@@ -2,8 +2,7 @@ import { Cache } from "./cache";
 import type { Duration } from "./duration";
 import { ms } from "./duration";
 import { Ratelimit } from "./ratelimit";
-import type { Algorithm, MultiRegionContext } from "./types";
-import type { Redis } from "./types";
+import type { Algorithm, MultiRegionContext, Redis } from "./types";
 
 function randomId(): string {
   let result = "";
@@ -17,8 +16,7 @@ function randomId(): string {
 
 export type MultiRegionRatelimitConfig = {
   /**
-   * Instances of `@upstash/redis`
-   * @see https://github.com/upstash/upstash-redis#quick-start
+   * Instances of Redis
    */
   redis: Redis[];
   /**
@@ -87,7 +85,7 @@ export type MultiRegionRatelimitConfig = {
  */
 export class MultiRegionRatelimit extends Ratelimit<MultiRegionContext> {
   /**
-   * Create a new Ratelimit instance by providing a `@upstash/redis` instance and the algorithn of your choice.
+   * Create a new Ratelimit instance by providing a Redis instance and the algorithn of your choice.
    */
   constructor(config: MultiRegionRatelimitConfig) {
     super({
@@ -167,7 +165,7 @@ export class MultiRegionRatelimit extends Ratelimit<MultiRegionContext> {
 
       const dbs: { redis: Redis; request: Promise<string[]> }[] = ctx.redis.map((redis) => ({
         redis,
-        request: redis.eval(script, [key], [requestId, windowDuration]) as Promise<string[]>,
+        request: redis.eval(script, 1, ...[key, requestId, windowDuration]) as Promise<string[]>,
       }));
 
       const firstResponse = await Promise.any(dbs.map((s) => s.request));
@@ -307,8 +305,8 @@ export class MultiRegionRatelimit extends Ratelimit<MultiRegionContext> {
         redis,
         request: redis.eval(
           script,
-          [currentKey, previousKey],
-          [tokens, now, windowDuration, requestId],
+          2,
+          ...[currentKey, previousKey, tokens, now, windowDuration, requestId],
           // lua seems to return `1` for true and `null` for false
         ) as Promise<[string[], string[], 1 | null]>,
       }));

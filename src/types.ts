@@ -1,3 +1,4 @@
+import { Redis as IORedis } from 'ioredis';
 /**
  * EphemeralCache is used to block certain identifiers right away in case they have already exceeded the ratelimit.
  */
@@ -58,21 +59,23 @@ export type RatelimitResponse = {
   pending: Promise<unknown>;
 };
 
+export interface AlgorithmOptions {
+  cache?: EphemeralCache;
+  /**
+   * Dynamic Limit that when provided will
+   * overwrite the defaultTokens limit provided
+   * as an argument to the algorithm function. 
+   */
+  dynamicLimit?: number;
+}
+
 export type Algorithm<TContext> = (
   ctx: TContext,
   identifier: string,
-  opts?: {
-    cache?: EphemeralCache;
-  },
+  opts?: AlgorithmOptions,
 ) => Promise<RatelimitResponse>;
 
 /**
  * This is all we need from the redis sdk.
  */
-export interface Redis {
-  sadd: <TData>(key: string, ...members: TData[]) => Promise<number>;
-
-  eval: <TArgs extends unknown[], TData = unknown>(
-    ...args: [script: string, keys: string[], args: TArgs]
-  ) => Promise<TData>;
-}
+export type Redis = Pick<IORedis, 'sadd' | 'eval' | 'evalsha'>
